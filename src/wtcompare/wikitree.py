@@ -145,9 +145,24 @@ class WikiTree:
         mm = re.search(r"authcode=(.+)$", loc)
         if r.status_code != 302 or not mm:
             raise RuntimeError("WikiTree-Login fehlgeschlagen (kein authcode). E-Mail/Passwort prüfen.")
-        self._request({"action": "clientLogin", "authcode": mm.group(1)}, allow_redirects=False)
-        cookies = s.cookies.get_dict()
-        self.user = unquote(cookies.get("wikidb_wtb_UserName", "")) or "?"
+        r = self._request({"action": "clientLogin", "authcode": mm.group(1)}, allow_redirects=False)
+        # Laut offiziellem JavaScript-Beispiel: {"clientLogin": {"result": "Success", "username": …, "userid": …}}
+        try:
+            info = r.json()
+        except ValueError:
+            info = None
+        info = _first(info)
+        cl = info.get("clientLogin") if isinstance(info, dict) else None
+        if isinstance(cl, dict) and str(cl.get("result", "")).lower() not in ("", "success"):
+            raise RuntimeError(f"WikiTree-Login nicht bestätigt: {cl.get('result')}")
+        name = str(cl.get("username") or cl.get("user_name") or "") if isinstance(cl, dict) else ""
+        if not name:
+            # Rückfall: Cookies (die Namen sind im offiziellen Python-Beispiel uneinheitlich)
+            cookies = s.cookies.get_dict()
+            name = next((unquote(v) for k, v in cookies.items() if k.endswith("_UserName") and v), "")
+        if not name:
+            raise RuntimeError("WikiTree-Login nicht bestätigt (kein Benutzername in der Antwort).")
+        self.user = name
         return self.user
 
     def logout(self):

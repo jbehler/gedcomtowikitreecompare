@@ -49,3 +49,24 @@ def test_persistent_429_gives_clear_message():
     wt.session = FakeSession([FakeResp(429)] * 5)
     with pytest.raises(RuntimeError, match="zu viele Anfragen"):
         wt.login("a@b.de", "pw")
+
+
+def test_login_reads_username_from_json():
+    wt = WikiTree(log=lambda s: None)
+    wt.session = FakeSession([
+        FakeResp(302, {"Location": "https://x/?authcode=abc"}),
+        FakeResp(200, payload={"clientLogin": {"result": "Success", "username": "Behler-77", "userid": 123}}),
+    ])
+    wt.session.cookies = type("C", (), {"get_dict": lambda s: {}})()
+    assert wt.login("a@b.de", "pw") == "Behler-77"
+
+
+def test_login_not_confirmed():
+    wt = WikiTree(log=lambda s: None)
+    wt.session = FakeSession([
+        FakeResp(302, {"Location": "https://x/?authcode=abc"}),
+        FakeResp(200, payload={"clientLogin": {"result": "error"}}),
+    ])
+    with pytest.raises(RuntimeError, match="nicht bestätigt"):
+        wt.login("a@b.de", "pw")
+    assert not wt.logged_in
