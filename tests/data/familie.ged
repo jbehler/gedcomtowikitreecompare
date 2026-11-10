@@ -1,0 +1,61 @@
+0 HEAD
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Johann /Behler/
+2 GIVN Johann
+2 SURN Behler
+1 SEX M
+1 BIRT
+2 DATE 12 MAR 1850
+1 DEAT
+2 DATE 1910
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME Maria /Schmidt/
+2 _MARNM Behler
+1 SEX F
+1 BIRT
+2 DATE ABT 1855
+1 FAMS @F1@
+0 @I3@ INDI
+1 NAME Heinrich Wilhelm /Behler/
+1 SEX M
+1 BIRT
+2 PLAC Dortmund, Nordrhein-Westfalen, Deutschland
+1 CHR
+2 DATE 20 MAY 1880
+1 DEAT
+2 DATE 2 FEB 1951
+1 FAMC @F1@
+1 FAMS @F2@
+0 @I4@ INDI
+1 NAME Karl /Behler/
+1 SEX M
+1 BIRT
+2 DATE 1912
+1 FAMC @F2@
+0 @I5@ INDI
+1 NAME Anna /Behler/
+1 SEX F
+1 BIRT
+2 DATE 1915
+1 FAMC @F2@
+0 @I6@ INDI
+1 NAME Otto /Fremd/
+1 SEX M
+1 BIRT
+2 DATE BEF 1702
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+1 MARR
+2 DATE 1 JUN 1878
+2 PLAC Dortmund, Westfalen
+0 @F2@ FAM
+1 HUSB @I3@
+1 CHIL @I4@
+1 CHIL @I5@
+1 NOTE Eine lange
+2 CONC  Notiz
+0 TRLR

@@ -1,0 +1,31 @@
+[project]
+name = "wt-ged-compare"
+version = "1.0.0"
+description = "Vergleicht WikiTree-Watchlist-Profile mit einer GEDCOM-Datei."
+readme = "README.md"
+# flet build nimmt die höchste passende Python-Version -> 3.13 (damit ist die App getestet)
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "flet==1.1.2",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "rapidfuzz", "flet-cli==1.1.2", "flet-desktop==1.1.2"]
+
+[tool.flet]
+org = "io.github.jbehler"
+product = "WikiTree GEDCOM Vergleich"
+company = "jbehler"
+copyright = "Copyright (C) 2026 jbehler"
+
+[tool.flet.app]
+path = "src"
+
+# rapidfuzz liefert bessere Ähnlichkeitswerte. Für Android ist nicht geprüft, ob es fertige
+# Wheels gibt (pypi.flet.dev), deshalb nur für Windows; Android nutzt den eingebauten Fallback.
+[tool.flet.windows]
+dependencies = ["rapidfuzz"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+.venv/
+# persönliche Daten nicht einchecken
+wikitree_cache.json
+vergleich.html
+vergleich.csv
+*.ged
+!tests/data/*.ged
