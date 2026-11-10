@@ -13,6 +13,11 @@ Benutzt nur die offizielle, lesende WikiTree-API. Auf WikiTree wird nichts verä
   - WikiTree in den geladenen Daten durchsuchen, online über die WikiTree-Suche (`searchPerson`) oder per WikiTree-ID.
 - **Vergleich:** Namen, Geburt, Tod, Ehe (Datum/Ort), Eltern/Partner/Kinder und fehlende Personen. Läuft im Hintergrund und lässt sich abbrechen.
 - **Ergebnis:** filterbar (nur Unterschiede, „ähnlich“ ausblenden, nur Watchlist, Suche); Export als HTML-Bericht und CSV.
+- **Fehlende Personen mit allen Profildaten**, als Vorlage zum schnellen Anlegen:
+  - „fehlt auf WikiTree“: alles aus der GEDCOM, also Namen (auch Spitz-/Ehenamen), Geschlecht, alle Ereignisse und Fakten (Geburt, Taufe, Tod, Begräbnis, Beruf, Wohnort …), Eltern, Partner mit Heirat, Kinder (jeweils mit WikiTree-ID, falls schon zugeordnet), Notizen, Quellen mit Fundstelle und Archiv sowie Medien.
+  - „fehlt in GEDCOM“: alles aus dem WikiTree-Cache (Namen, Lebensdaten, Orte, Datenstatus, Familie). Biografie und Quellen stehen auf dem WikiTree-Profil.
+  - Kopieren-Knopf pro Angabe (Daten als JJJJ-MM-TT) und „Alles kopieren“.
+  - Knopf zum Öffnen des Verwandten auf WikiTree, an den die Person angehängt wird.
 - **Manuelle Zuordnung:**
   - Watchlist-Profile ohne Zuordnung per Klick einer GEDCOM-Person zuweisen oder als „kein Gegenstück“ markieren.
   - Die Zuordnung wird gespeichert, beim nächsten Lauf als fester Ankerpunkt benutzt und der Abgleich läuft von dort weiter.

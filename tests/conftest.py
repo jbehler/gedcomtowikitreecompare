@@ -26,11 +26,13 @@ def make_cache(path: Path):
              BirthLocation="Dortmund, Westfalen, Preußen"),
         4: P(4, "Behler-65", "Karl", "Behler", "1912-00-00", "", "Male", 3, 0),
         5: P(5, "Fremd-1", "Otto", "Fremd", "1700-00-00", "", "Male"),
+        6: P(6, "Behler-66", "Fritz", "Behler", "1918-07-09", "1944-00-00", "Male", 3, 0,
+             BirthLocation="Dortmund", Nicknames="Fritze", DataStatus={"DeathDate": "guess"}),
     }
     rel = {
         1: {"parents": [], "children": [3], "spouses": {"2": {"date": "1878-06-01", "place": "Dortmund"}}},
         2: {"parents": [], "children": [3], "spouses": {"1": {"date": "1878-06-01", "place": "Dortmund"}}},
-        3: {"parents": [1, 2], "children": [4], "spouses": {}},
+        3: {"parents": [1, 2], "children": [4, 6], "spouses": {}},
         4: {"parents": [3], "children": [], "spouses": {}},
         5: {"parents": [], "children": [], "spouses": {}},
     }

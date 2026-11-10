@@ -9,6 +9,7 @@ from typing import Callable
 
 from .dates import PDate, parse_wt_date, year_range
 from .gedcom import Gedcom, GPerson
+from .profile import ged_details, wt_details
 from .textutil import given_sim, norm, sim
 from .wikitree import WikiTree
 
@@ -373,10 +374,18 @@ def build_result(cmp: Comparer, meta: dict) -> dict:
         if m["status"] == "fehlt in GEDCOM" and m["key"] in cmp.w2g:
             continue
         seen.add(k)
+        on_wt = m["status"] == "fehlt auf WikiTree"
+        if on_wt:
+            details = ged_details(ged, m["key"], wt_of=lambda x: wt.wtid(cmp.g2w[x]) if x in cmp.g2w else None)
+        else:
+            details = wt_details(wt, m["key"], ged_of=lambda j: cmp.w2g.get(j))
         missing.append({"status": m["status"], "who": m["who"],
                         "rel": f"{m['rel']} {ged.indi[m['g']].name}",
-                        "wid": wt.wtid(m["key"]) if m["status"] == "fehlt in GEDCOM" else wt.wtid(m["w"]),
-                        "g": m["key"] if m["status"] == "fehlt auf WikiTree" else m["g"]})
+                        "wid": wt.wtid(m["key"]) if not on_wt else wt.wtid(m["w"]),
+                        "g": m["key"] if on_wt else m["g"],
+                        # Verwandter, an den die Person angehängt wird (WikiTree-ID + Name)
+                        "anchor": wt.wtid(m["w"]), "anchor_name": wt.label(m["w"]),
+                        "details": details})
     unmatched = [{"w": wt.wtid(w), "wid": w, "wname": wt.label(w),
                   "cands": [{"g": x, "name": ged.indi[x].label(), "s": round(s, 2)} for s, x in c]}
                  for w, c in cmp.unmatched]

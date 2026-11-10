@@ -10,6 +10,7 @@ from pathlib import Path
 
 import flet as ft
 
+from wtcompare.profile import as_text
 from wtcompare.project import Project, ProjectStore
 from wtcompare.report import csv_bytes, html_bytes
 from wtcompare.rundiff import diff_runs
@@ -42,6 +43,7 @@ class App:
         self.pending_mapping = False
         self.file_picker = ft.FilePicker()   # Dienst: Referenz halten, sonst wird er abgemeldet
         self.url_launcher = ft.UrlLauncher()
+        self.clipboard = ft.Clipboard()
 
         # Ergebnis-Filter
         self.res_tab = "p"
@@ -657,14 +659,59 @@ class App:
             out.append(hint("Keine Einträge für diesen Filter."))
         return out + self._more(len(rows), min(len(rows), self.res_limit))
 
+    def copy(self, text: str, what: str = ""):
+        async def job():
+            await self.clipboard.set(text)
+            self.toast(f"Kopiert: {what}" if what else "In die Zwischenablage kopiert.")
+        self.page.run_task(job)
+
+    def _details_view(self, details: dict) -> ft.Control:
+        ctl = []
+        for sec in details.get("sections", []):
+            ctl.append(ft.Text(sec["title"], weight=ft.FontWeight.BOLD))
+            for r in sec["rows"]:
+                ctl.append(ft.Row([
+                    ft.Text(r["label"], size=12, color=ft.Colors.ON_SURFACE_VARIANT, width=130),
+                    ft.Text(r["value"], size=13, selectable=True, expand=True),
+                    ft.IconButton(ft.Icons.CONTENT_COPY, icon_size=16, tooltip="Kopieren",
+                                  on_click=lambda e, r=r: self.copy(r.get("copy", r["value"]), r["label"])),
+                ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=6))
+        return ft.Column(ctl or [hint("Keine weiteren Angaben vorhanden.")], spacing=2)
+
     def _missing_items(self, res):
         M = [m for m in res["missing"] if self._match(m["who"], m["rel"], m["wid"], m["g"])]
-        out = [ft.Card(ft.Container(ft.Column([
-            ft.Row([status_chip(m["status"]), ft.Text(m["who"], weight=ft.FontWeight.W_500)], wrap=True),
-            hint(f"{m['rel']} · GEDCOM {m['g']}"), self.wt_link(m["wid"])], spacing=4), padding=12))
-            for m in M[:self.res_limit]]
+        out = []
+        for m in M[:self.res_limit]:
+            on_wt = m["status"] == "fehlt auf WikiTree"
+            details = m.get("details")
+            box = ft.Container()
+            buttons = []
+            if on_wt:
+                anchor = m.get("anchor") or m["wid"]
+                name = (m.get("anchor_name") or anchor).split(" (")[0]
+                buttons.append(ft.TextButton(f"{name} auf WikiTree öffnen", icon=ft.Icons.OPEN_IN_NEW,
+                                             on_click=lambda e, a=anchor: self.open_url(
+                                                 f"https://www.wikitree.com/wiki/{a}")))
+            else:
+                buttons.append(self.wt_link(m["wid"]))
+            if details:
+                def toggle(e, box=box, details=details):
+                    box.content = None if box.content else self._details_view(details)
+                    e.control.content = "Profildaten ausblenden" if box.content else "Profildaten anzeigen"
+                    box.update()
+                    e.control.update()
+                buttons.append(ft.TextButton("Profildaten anzeigen", icon=ft.Icons.EXPAND_MORE, on_click=toggle))
+                buttons.append(ft.TextButton("Alles kopieren", icon=ft.Icons.CONTENT_COPY,
+                                             on_click=lambda e, m=m: self.copy(
+                                                 as_text(m["details"], f"{m['who']} – {m['rel']}"), m["who"])))
+            out.append(ft.Card(ft.Container(ft.Column([
+                ft.Row([status_chip(m["status"]), ft.Text(m["who"], weight=ft.FontWeight.W_500)], wrap=True),
+                hint(f"{m['rel']} · GEDCOM {m['g']}" if on_wt else f"{m['rel']} · WikiTree {m['wid']}"),
+                ft.Row(buttons, wrap=True, spacing=0), box], spacing=4), padding=12)))
         if not M:
             out.append(hint("Keine fehlenden Personen gefunden."))
+        elif not any(m.get("details") for m in M):
+            out.insert(0, hint("Profildaten gibt es erst ab dem nächsten Vergleich (ältere Läufe enthalten sie nicht)."))
         return out + self._more(len(M), min(len(M), self.res_limit))
 
     def _unmatched_items(self, res):

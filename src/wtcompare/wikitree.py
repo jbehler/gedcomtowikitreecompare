@@ -19,7 +19,8 @@ from .dates import parse_wt_date
 API_URL = "https://api.wikitree.com/api.php"
 APP_ID = "GedcomWatchlistCompare"
 WT_FIELDS = ("Id,Name,FirstName,MiddleName,RealName,LastNameAtBirth,LastNameCurrent,LastNameOther,"
-             "BirthDate,DeathDate,BirthLocation,DeathLocation,Gender,Father,Mother,DataStatus,IsLiving,Privacy")
+             "BirthDate,DeathDate,BirthLocation,DeathLocation,Gender,Father,Mother,DataStatus,IsLiving,Privacy,"
+             "Nicknames,Prefix,Suffix")
 
 
 class Cancelled(Exception):

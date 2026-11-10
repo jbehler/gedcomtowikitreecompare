@@ -35,10 +35,32 @@
 2 DATE 1912
 1 FAMC @F2@
 0 @I5@ INDI
-1 NAME Anna /Behler/
+1 NAME Anna Maria /Behler/
+2 GIVN Anna Maria
+2 SURN Behler
+2 NICK Anni
+1 NAME Anna /Müller/
+2 TYPE married
 1 SEX F
 1 BIRT
-2 DATE 1915
+2 DATE 3 APR 1915
+2 PLAC Hörde, Dortmund, Westfalen, Deutschland
+2 SOUR @S1@
+3 PAGE Nr. 312/1915
+3 DATA
+4 TEXT Geburtsurkunde Anna Maria Behler
+1 OCCU Schneiderin
+2 DATE 1935
+2 PLAC Dortmund
+1 RESI
+2 DATE BET 1940 AND 1950
+2 ADDR Hauptstraße 1
+3 CONT 44137 Dortmund
+1 DEAT Y
+1 NOTE @N1@
+1 OBJE
+2 FILE https://example.org/anna.jpg
+3 TITL Anna 1935
 1 FAMC @F2@
 0 @I6@ INDI
 1 NAME Otto /Fremd/
@@ -58,4 +80,12 @@
 1 CHIL @I5@
 1 NOTE Eine lange
 2 CONC  Notiz
+0 @S1@ SOUR
+1 TITL Standesamt Hörde, Geburtsregister 1915
+1 AUTH Standesamt Hörde
+1 REPO @R1@
+0 @R1@ REPO
+1 NAME Stadtarchiv Dortmund
+0 @N1@ NOTE Wanderte 1952 nach
+1 CONC  Kanada aus.
 0 TRLR

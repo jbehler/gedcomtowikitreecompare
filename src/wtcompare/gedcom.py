@@ -78,11 +78,12 @@ class Gedcom:
             if mm:
                 yield int(mm.group(1)), (mm.group(2) or "").strip(), mm.group(3).upper(), (mm.group(4) or "")
 
-    def _parse(self, text: str):
-        # Baum aufbauen: Knoten = [tag, value, xref, children]
+    @classmethod
+    def tree(cls, text: str) -> list:
+        """GEDCOM-Text als Baum: Knoten = [tag, value, xref, children]; liefert den ROOT-Knoten."""
         root = ["ROOT", "", "", []]
         stack = [(-1, root)]
-        for lvl, xref, tag, val in self._lines(text):
+        for lvl, xref, tag, val in cls._lines(text):
             if tag in ("CONC", "CONT"):
                 parent = next((n for lv, n in reversed(stack) if lv < lvl), root)
                 parent[1] += ("\n" if tag == "CONT" else "") + val
@@ -92,6 +93,20 @@ class Gedcom:
                 stack.pop()
             stack[-1][1][3].append(node)
             stack.append((lvl, node))
+        return root
+
+    def record(self, xref: str) -> list | None:
+        """Kompletter Datensatz (INDI, FAM, SOUR, NOTE, OBJE, REPO …) als Baum – wird bei Bedarf geparst."""
+        raw = self.raw.get(xref)
+        if raw is None:
+            return None
+        root = self.tree(raw)
+        return root[3][0] if root[3] else None
+
+    def _parse(self, text: str):
+        # Datensätze als Rohtext aufheben (spart Speicher); Kerndaten sofort auswerten
+        self.raw: dict[str, str] = {}
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
 
         def sub(node, tag):
             return [c for c in node[3] if c[0] == tag]
@@ -100,7 +115,13 @@ class Gedcom:
             s = sub(node, tag)
             return s[0][1].strip() if s else default
 
-        for rec in root[3]:
+        for chunk in re.split(r"\n(?=[ \t]*0[ \t])", text):
+            root = self.tree(chunk)
+            if not root[3]:
+                continue
+            rec = root[3][0]
+            if rec[2]:
+                self.raw[rec[2]] = chunk
             tag, _val, xref, _ = rec
             if tag == "INDI":
                 p = GPerson(xref)

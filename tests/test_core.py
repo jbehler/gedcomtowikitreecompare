@@ -64,7 +64,7 @@ def test_full_run_and_manual(tmp_path, ged_bytes):
     assert stat["Tod"] == "abweichend"
     assert stat["Geburt"] == "ähnlich"
     assert stat["Geburtsort"] == "ähnlich"
-    assert any(m["who"].startswith("Anna Behler") and m["status"] == "fehlt auf WikiTree" for m in res["missing"])
+    assert any(m["who"].startswith("Anna Maria Behler") and m["status"] == "fehlt auf WikiTree" for m in res["missing"])
     assert [u["w"] for u in res["unmatched"]] == ["Fremd-1"]
     assert res["unmatched"][0]["cands"][0]["g"] == "@I6@"
 
@@ -109,3 +109,33 @@ def test_cli(tmp_path, ged_bytes):
     main([str(ged), "--wt-start", "Behler-64", "--ged-start", "Heinrich Behler 1880", "--cache", str(cache),
           "--offline", "--out", str(out)])
     assert out.with_suffix(".html").exists() and out.with_suffix(".csv").exists()
+
+
+def test_missing_details(tmp_path, ged_bytes):
+    from wtcompare.profile import as_text
+    _, p = _project(tmp_path, ged_bytes)
+    res = p.run(p.wikitree(offline=True, log=lambda s: None), log=lambda s: None)
+    anna = next(m for m in res["missing"] if m["g"] == "@I5@")
+    assert anna["anchor"] == "Behler-64"
+    txt = as_text(anna["details"])
+    for part in ("Vorname(n): Anna Maria", "Spitzname: Anni", "Ehename: Anna Müller", "Geburt: Datum: 03.04.1915",
+                 "Geburt: Ort: Hörde", "Beruf: Schneiderin", "Wohnort: Adresse: Hauptstraße 1, 44137 Dortmund",
+                 "Tod: ja (ohne Datum/Ort)", "Wanderte 1952 nach Kanada aus.", "Standesamt Hörde, Geburtsregister 1915",
+                 "Stadtarchiv Dortmund", "Fundstelle: Nr. 312/1915", "Geburtsurkunde Anna Maria Behler",
+                 "https://example.org/anna.jpg", "Vater: Heinrich Wilhelm Behler", "WikiTree Behler-64"):
+        assert part in txt, part
+    rows = {r["label"]: r for s in anna["details"]["sections"] for r in s["rows"]}
+    assert rows["Geburt: Datum"]["copy"] == "1915-04-03"
+    assert rows["Vater"]["copy"].startswith("Heinrich Wilhelm Behler (")
+
+
+def test_missing_in_gedcom_details(tmp_path, ged_bytes):
+    from wtcompare.profile import as_text
+    _, p = _project(tmp_path, ged_bytes)
+    res = p.run(p.wikitree(offline=True, log=lambda s: None), log=lambda s: None)
+    fritz = next(m for m in res["missing"] if m["wid"] == "Behler-66")
+    assert fritz["status"] == "fehlt in GEDCOM" and fritz["anchor"] == "Behler-64"
+    txt = as_text(fritz["details"])
+    for part in ("WikiTree-ID: Behler-66", "Vorname: Fritz", "Spitzname: Fritze", "Geburt: Datum: 09.07.1918",
+                 "Geburt: Ort: Dortmund", "Tod: Datum: ca. 1944", "Vater: Heinrich Behler", "GEDCOM @I3@"):
+        assert part in txt, part
