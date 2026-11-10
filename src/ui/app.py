@@ -135,6 +135,8 @@ class App:
                 self.log_text.update()
             except Exception:
                 pass
+        if line.startswith("WikiTree meldet HTTP"):
+            self.toast(line)
 
     # ================================================================ Projekte
     def open_project(self, p: Project, go=True):

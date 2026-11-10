@@ -94,24 +94,43 @@ class WikiTree:
             self.session.headers["User-Agent"] = f"{APP_ID}/1.0"
         return self.session
 
-    def _post(self, data: dict):
-        if self.offline:
-            raise RuntimeError("Offline-Modus: Daten fehlen im Cache – ohne Offline-Modus erneut starten.")
+    def _wait(self, r, attempt: int):
+        """Bei 429/5xx warten: Retry-After des Servers beachten, sonst 10, 20, 40 … Sekunden."""
+        try:
+            wait = int(r.headers.get("Retry-After", ""))
+        except ValueError:
+            wait = 10 * 2 ** attempt
+        wait = max(1, min(wait, 300))
+        self.log(f"WikiTree meldet HTTP {r.status_code} (zu viele Anfragen) – warte {wait} s …")
+        for _ in range(wait):
+            time.sleep(1)
+            self._check_cancel()
+
+    def _request(self, data: dict, allow_redirects: bool = True):
+        """POST mit appId (ohne appId gelten laut API-Doku strenge Ratenlimits) und Wiederholung bei 429/5xx."""
         self._check_cancel()
         s = self._session()
         data = {**data, "appId": APP_ID}
         r = None
-        for attempt in range(4):
-            r = s.post(API_URL, data=data, timeout=60)
+        for attempt in range(5):
+            r = s.post(API_URL, data=data, timeout=60, allow_redirects=allow_redirects)
             if r.status_code == 429 or r.status_code >= 500:
-                time.sleep(5 * (attempt + 1))
-                self._check_cancel()
+                if attempt < 4:
+                    self._wait(r, attempt)
                 continue
             r.raise_for_status()
-            time.sleep(self.delay)
-            return r.json()
-        r.raise_for_status()
-        raise RuntimeError(f"WikiTree antwortet nicht (HTTP {r.status_code}).")
+            return r
+        if r is not None and r.status_code == 429:
+            raise RuntimeError("WikiTree lehnt Anfragen vorübergehend ab (HTTP 429, zu viele Anfragen). "
+                               "Bitte einige Minuten warten und es dann erneut versuchen.")
+        raise RuntimeError(f"WikiTree antwortet nicht (HTTP {r.status_code if r is not None else '?'}).")
+
+    def _post(self, data: dict):
+        if self.offline:
+            raise RuntimeError("Offline-Modus: Daten fehlen im Cache – ohne Offline-Modus erneut starten.")
+        r = self._request(data)
+        time.sleep(self.delay)
+        return r.json()
 
     @property
     def logged_in(self) -> bool:
@@ -120,17 +139,13 @@ class WikiTree:
     def login(self, email: str, password: str) -> str:
         """Login wie im offiziellen Python-Beispiel der WikiTree-API (examples/authentication/python.py)."""
         s = self._session()
-        r = s.post(API_URL, data={"action": "clientLogin", "doLogin": 1,
-                                  "wpEmail": email, "wpPassword": password},
-                   allow_redirects=False, timeout=60)
-        r.raise_for_status()
+        r = self._request({"action": "clientLogin", "doLogin": 1, "wpEmail": email, "wpPassword": password},
+                          allow_redirects=False)
         loc = r.headers.get("Location", "")
         mm = re.search(r"authcode=(.+)$", loc)
         if r.status_code != 302 or not mm:
             raise RuntimeError("WikiTree-Login fehlgeschlagen (kein authcode). E-Mail/Passwort prüfen.")
-        r = s.post(API_URL, data={"action": "clientLogin", "authcode": mm.group(1)},
-                   allow_redirects=False, timeout=60)
-        r.raise_for_status()
+        self._request({"action": "clientLogin", "authcode": mm.group(1)}, allow_redirects=False)
         cookies = s.cookies.get_dict()
         self.user = unquote(cookies.get("wikidb_wtb_UserName", "")) or "?"
         return self.user
