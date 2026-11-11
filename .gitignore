@@ -9,3 +9,7 @@ vergleich.html
 vergleich.csv
 *.ged
 !tests/data/*.ged
+# Signierschlüssel nie einchecken
+*.jks
+*.keystore
+*keystore-base64*

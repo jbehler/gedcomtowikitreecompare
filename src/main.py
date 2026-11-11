@@ -26,5 +26,7 @@ async def main(page: ft.Page):
     App(page, data_dir)
 
 
-if __name__ == "__main__":
+# Wie im offiziellen Flet-Beispiel ohne __name__-Abfrage: so startet die App auch, wenn
+# flet build / der Android-Starter main.py nicht als __main__ ausführt.
+if os.environ.get("WTCOMPARE_NO_AUTORUN") != "1":
     ft.run(main)

@@ -54,6 +54,40 @@ flet build apk
 Die Ergebnisse liegen in `build/windows` bzw. `build/apk`. Die APK lässt sich direkt aufs Handy kopieren und installieren
 („Installation aus unbekannten Quellen“ erlauben). Für eine kleinere APK: `flet build apk --split-per-abi`.
 
+## Android-App über GitHub (ohne eigenes Android SDK)
+
+GitHub baut die APK automatisch, sobald ein Versions-Tag wie `v1.0.0` gepusht wird, und hängt sie an ein
+Release. Für öffentliche Repos ist das kostenlos.
+
+**Einmalig: Signierschlüssel anlegen.** Jede Version muss mit demselben Schlüssel signiert sein, sonst lässt
+sie sich nicht über die alte installieren.
+
+```powershell
+py -m pip install cryptography
+```
+```powershell
+py tools\keystore_erzeugen.py
+```
+
+Das Skript legt `upload-keystore.jks` und `upload-keystore-base64.txt` in deinem Benutzerordner an (nicht im
+Repo) und zeigt ein Passwort an. Dann auf GitHub im Repo **Settings → Secrets and variables → Actions →
+New repository secret** zwei Secrets anlegen:
+
+| Name | Wert |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | kompletter Inhalt von `upload-keystore-base64.txt` |
+| `ANDROID_KEYSTORE_PASSWORD` | das angezeigte Passwort |
+
+`upload-keystore.jks` und das Passwort sicher aufbewahren (Backup). Die `…-base64.txt` danach löschen.
+
+**Neue Version veröffentlichen:** In GitHub Desktop **History** → Rechtsklick auf den neuesten Commit →
+**Create Tag…** → z. B. `v1.0.0` → **Push origin**. Unter **Actions** läuft dann „Android-APK“ (dauert
+einige Minuten), danach liegt die APK unter **Releases**.
+
+**Auf dem Handy:** Release-Seite öffnen, `WikiTree-GEDCOM-Vergleich-….apk` herunterladen, antippen und
+installieren. Android fragt einmalig, ob der Browser/Dateimanager Apps installieren darf. Bei späteren
+Versionen genauso, die Daten bleiben erhalten.
+
 ## Kommandozeile (wie bisher)
 
 ```bash

@@ -1,0 +1,85 @@
+# Baut die Android-APK und hängt sie an ein GitHub-Release.
+# Auslöser: ein Versions-Tag wie v1.0.0 (oder manuell unter Actions -> "Android-APK" -> Run workflow).
+# Benötigte Repository-Secrets (siehe README, Abschnitt "Android-App"):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD
+name: Android-APK
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # zum Anlegen des Releases
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Version bestimmen
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Signierschlüssel bereitstellen
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [[ -z "$KS_B64" || -z "$KS_PW" ]]; then
+            echo "::error::Secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD fehlen (siehe README)."
+            exit 1
+          fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: APK bauen
+        id: build
+        uses: flet-dev/flet-build-action@v1
+        env:
+          FLET_ANDROID_SIGNING_KEY_STORE: ${{ runner.temp }}/upload-keystore.jks
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_ALIAS: upload
+        with:
+          target: apk
+          runner-python-version: "3.13"
+          bundled-python-version: "3.13"
+          build-number: ${{ github.run_number }}
+          build-version: ${{ steps.ver.outputs.version }}
+
+      - name: APK umbenennen
+        id: apk
+        run: |
+          src=$(find "${{ steps.build.outputs.output-path }}" -name '*.apk' | head -1)
+          test -n "$src" || { echo "::error::Keine APK gefunden"; exit 1; }
+          dst="$RUNNER_TEMP/WikiTree-GEDCOM-Vergleich-${{ steps.ver.outputs.version }}.apk"
+          cp "$src" "$dst"
+          echo "path=$dst" >> "$GITHUB_OUTPUT"
+
+      - name: Als Artefakt ablegen (manueller Lauf)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.apk.outputs.path }}
+          archive: false
+          if-no-files-found: error
+
+      - name: Release anlegen
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" \
+            --title "WikiTree GEDCOM Vergleich ${{ steps.ver.outputs.version }}" \
+            --notes "Android-App: APK auf dem Handy herunterladen und installieren (Installation aus unbekannten Quellen erlauben)."
+
+      - name: Schlüssel entfernen
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
