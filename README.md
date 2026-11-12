@@ -88,6 +88,35 @@ einige Minuten), danach liegt die APK unter **Releases**.
 installieren. Android fragt einmalig, ob der Browser/Dateimanager Apps installieren darf. Bei späteren
 Versionen genauso, die Daten bleiben erhalten.
 
+## Google Drive: Projekte zwischen PC und Handy abgleichen
+
+Die App legt jedes Projekt (GEDCOM-Kopie, WikiTree-Cache, Zuordnungen, Einstellungen, Läufe) als ZIP in einen
+**versteckten App-Ordner** deines Google Drive (`appDataFolder`). Diesen Ordner sieht nur diese App, sie selbst
+sieht keine deiner anderen Drive-Dateien (Scope `drive.appdata`). Abgeglichen wird beim Öffnen eines Projekts und
+einige Sekunden nach jeder Änderung. Wurde dasselbe Projekt auf beiden Geräten geändert, fragt die App, welcher
+Stand gelten soll.
+
+**Einmalig: eigenes Google-Cloud-Projekt anlegen** (kostenlos; die Menünamen in der Google Cloud Console ändern
+sich gelegentlich):
+
+1. https://console.cloud.google.com öffnen und ein neues Projekt anlegen, z. B. „WikiTree GEDCOM Vergleich“.
+2. **APIs & Dienste → Bibliothek**: „Google Drive API“ suchen und **aktivieren**.
+3. **OAuth-Zustimmungsbildschirm** (bzw. „Google Auth Platform“) einrichten: App-Name, deine E-Mail,
+   Nutzertyp **Extern**.
+4. Unter **Zielgruppe** den Veröffentlichungsstatus auf **„In Produktion“** stellen. Im Status „Testing“
+   läuft die Anmeldung laut Google nach **7 Tagen** ab. `drive.appdata` ist laut Google ein nicht sensibler
+   Scope, eine Überprüfung durch Google sollte dafür nicht nötig sein.
+5. **Clients → Client erstellen**, Anwendungstyp **„Fernseher und Geräte mit begrenzter Eingabe“**
+   („TVs and Limited Input devices“). Client-ID und Client-Secret notieren.
+
+**In der App (auf PC und Handy):** Projekte → Google Drive → Client-ID und Client-Secret eintragen →
+„Mit Google Drive verbinden“. Die App zeigt einen Code; auf google.com/device eingeben (geht auch vom
+anderen Gerät aus) und den Zugriff erlauben. Auf dem zweiten Gerät dann „Projekte aus Google Drive holen“.
+
+Client-ID, -Secret und die Google-Anmeldung werden nur auf dem jeweiligen Gerät im App-Datenordner
+gespeichert (`settings.json`), nicht im Repo. „Verbindung trennen“ entfernt die Anmeldung; widerrufen lässt sie
+sich zusätzlich unter https://myaccount.google.com/permissions.
+
 ## Kommandozeile (wie bisher)
 
 ```bash

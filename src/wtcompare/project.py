@@ -6,7 +6,8 @@ import json
 import re
 import shutil
 import threading
-from dataclasses import asdict, dataclass, field
+import uuid
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -37,6 +38,7 @@ class ProjectSettings:
     ged_start: str = ""            # XREF der Startperson in der GEDCOM
     threshold: float = 0.6
     expand_all: bool = False
+    uid: str = ""                  # feste Kennung (gleich auf allen Geräten, für den Abgleich)
 
 
 @dataclass
@@ -48,7 +50,12 @@ class Mappings:
 class Project:
     def __init__(self, folder: Path):
         self.dir = folder
-        self.settings = ProjectSettings(**json.loads((folder / "project.json").read_text(encoding="utf-8")))
+        raw = json.loads((folder / "project.json").read_text(encoding="utf-8"))
+        known = {f.name for f in fields(ProjectSettings)}
+        self.settings = ProjectSettings(**{k: v for k, v in raw.items() if k in known})
+        if not self.settings.uid:
+            self.settings.uid = uuid.uuid4().hex
+            _write_json(folder / "project.json", asdict(self.settings))
         self._ged: Gedcom | None = None
         mp = folder / "mappings.json"
         self.mappings = Mappings(**json.loads(mp.read_text(encoding="utf-8"))) if mp.exists() else Mappings()
@@ -199,6 +206,16 @@ class ProjectStore:
                 except (ValueError, TypeError, json.JSONDecodeError):
                     continue
         return out
+
+    def new_dir(self, name: str) -> Path:
+        base = _slug(name)
+        d, i = self.root / base, 2
+        while d.exists():
+            d, i = self.root / f"{base}-{i}", i + 1
+        return d
+
+    def by_uid(self, uid: str) -> Project | None:
+        return next((p for p in self.list() if p.settings.uid == uid), None)
 
     def create(self, name: str) -> Project:
         name = name.strip() or "Projekt"

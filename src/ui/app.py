@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import platform
 import re
+import socket
 import threading
 import traceback
 from datetime import datetime
@@ -10,10 +13,12 @@ from pathlib import Path
 
 import flet as ft
 
+from wtcompare.gdrive import AuthExpired, Drive
 from wtcompare.profile import as_text
 from wtcompare.project import Project, ProjectStore
 from wtcompare.report import csv_bytes, html_bytes
 from wtcompare.rundiff import diff_runs
+from wtcompare.sync import Conflict, Syncer, last_synced
 from wtcompare.textutil import norm
 from wtcompare.wikitree import Cancelled, WikiTree
 
@@ -33,7 +38,14 @@ def _fmt_ts(iso: str, seconds: bool = False) -> str:
 class App:
     def __init__(self, page: ft.Page, data_dir: Path):
         self.page = page
+        self.data_dir = data_dir
         self.store = ProjectStore(data_dir)
+        self.settings = self._load_settings()
+        self.drive: Drive | None = None
+        self.sync_running = False
+        self.sync_timer: threading.Timer | None = None
+        self.sync_status = ""
+        self._connect_drive()
         self.project: Project | None = None
         self.wt: WikiTree | None = None
         self.result: dict | None = None
@@ -67,8 +79,10 @@ class App:
         page.appbar = ft.AppBar(title=ft.Text("WikiTree <-> GEDCOM"))
         page.add(ft.SafeArea(self.body, expand=True))
         projects = self.store.list()
-        if len(projects) == 1:
-            self.open_project(projects[0], go=False)
+        last = self.settings.get("last_project")
+        pick = next((p for p in projects if p.settings.uid == last), None) or (projects[0] if len(projects) == 1 else None)
+        if pick:
+            self.open_project(pick, go=False)
         self.show(1 if self.project else 0)
 
     # ================================================================ Allgemein
@@ -104,6 +118,9 @@ class App:
         if self.busy:
             self.toast("Es läuft bereits ein Vorgang.")
             return
+        if self.sync_running:
+            self.toast("Google-Drive-Abgleich läuft gerade – bitte kurz warten.")
+            return
         self.busy = True
         self.cancel.clear()
         self.log(label)
@@ -113,6 +130,7 @@ class App:
                 out = job()
                 if done:
                     done(out)
+                self.schedule_sync()
             except Cancelled:
                 self.log("Abgebrochen.")
                 self.toast("Abgebrochen.")
@@ -155,6 +173,10 @@ class App:
                 self.result = p.load_run(runs[0])
             except Exception:
                 self.result = None
+        if self.settings.get("last_project") != p.settings.uid:
+            self.settings["last_project"] = p.settings.uid
+            self._save_settings()
+        self.schedule_sync(delay=0.5)
         if go:
             self.show(1)
 
@@ -171,22 +193,30 @@ class App:
             def ok(e):
                 self.store.rename(p, tf.value)
                 self.page.pop_dialog()
+                if self.project and self.project.dir == p.dir:
+                    self.schedule_sync()
                 self.refresh()
             self.page.show_dialog(ft.AlertDialog(title=ft.Text("Projekt umbenennen"), content=tf, actions=[
                 ft.TextButton("Abbrechen", on_click=lambda e: self.page.pop_dialog()),
                 ft.FilledButton("Speichern", on_click=ok)]))
 
         def delete(p):
+            also_drive = ft.Checkbox(label="Auch aus Google Drive löschen", value=False, visible=bool(self.drive))
+
             def ok(e):
                 if self.project and self.project.dir == p.dir:
                     self.project, self.wt, self.result = None, None, None
+                if also_drive.value and self.drive:
+                    syncer = Syncer(self.drive, self.store, self._device())
+                    self.page.run_thread(lambda: self._guard(lambda: syncer.delete_remote(p), "Löschen in Google Drive"))
                 self.store.delete(p)
                 self.page.pop_dialog()
                 self.refresh()
             self.page.show_dialog(ft.AlertDialog(
                 title=ft.Text("Projekt löschen?"),
-                content=ft.Text(f"„{p.settings.name}“ mit GEDCOM-Kopie, WikiTree-Cache, Zuordnungen und allen "
-                                "gespeicherten Läufen wird gelöscht."),
+                content=ft.Column([ft.Text(f"„{p.settings.name}“ mit GEDCOM-Kopie, WikiTree-Cache, Zuordnungen und "
+                                           "allen gespeicherten Läufen wird auf diesem Gerät gelöscht."),
+                                   also_drive], tight=True),
                 actions=[ft.TextButton("Abbrechen", on_click=lambda e: self.page.pop_dialog()),
                          ft.FilledButton("Löschen", on_click=ok)]))
 
@@ -212,6 +242,7 @@ class App:
                     ft.Row([name, ft.FilledButton("Anlegen", icon=ft.Icons.ADD, on_click=create)]),
                     subtitle="Ein Projekt = eine GEDCOM, ein Startpaar, eigene Zuordnungen und Läufe."),
             section("Projekte", *(tiles or [hint("Noch keine Projekte.")])),
+            self._drive_section(),
         ], padding=12, spacing=8, expand=True)
 
     # ================================================================ Einrichten
@@ -307,10 +338,12 @@ class App:
         def th_end(e):
             s.threshold = round(e.control.value, 2)
             p.save()
+            self.schedule_sync()
 
         def exp_change(e):
             s.expand_all = e.control.value
             p.save()
+            self.schedule_sync()
 
         opt_sec = section(
             "4 · Einstellungen", th_label,
@@ -365,6 +398,7 @@ class App:
         def g_pick(xref):
             s.ged_start = xref
             p.save()
+            self.schedule_sync()
             self.refresh()
 
         def g_search(e):
@@ -388,6 +422,7 @@ class App:
         def w_pick(wtid):
             s.wt_start = wtid
             p.save()
+            self.schedule_sync()
             self.refresh()
 
         def tiles(ids):
@@ -481,6 +516,7 @@ class App:
 
     # ================================================================ Zuordnen
     def _mapping_changed(self, msg):
+        self.schedule_sync()
         self.pending_mapping = True
         self.toast(msg + " Wirkt beim nächsten Vergleich.")
         self.refresh()
@@ -776,6 +812,7 @@ class App:
 
         def delete_run(path):
             p.delete_run(path)
+            self.schedule_sync()
             if self.result and self.result["meta"].get("file") == path.name:
                 self.result = None
             self.refresh()
@@ -819,3 +856,243 @@ class App:
         if not d["changes"] and not any(d[k] for k in ("missing_new", "missing_gone", "unmatched_new", "unmatched_gone")):
             ctl.append(hint("Keine Unterschiede zwischen den beiden Läufen."))
         return ctl
+
+    # ================================================================ Google Drive
+    @property
+    def _settings_path(self) -> Path:
+        return self.data_dir / "settings.json"
+
+    def _load_settings(self) -> dict:
+        try:
+            return json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _save_settings(self):
+        tmp = self._settings_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.settings, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(self._settings_path)
+
+    def _connect_drive(self):
+        g = self.settings.get("google") or {}
+        self.drive = Drive(g["client_id"], g["client_secret"], g["refresh_token"]) \
+            if g.get("client_id") and g.get("client_secret") and g.get("refresh_token") else None
+
+    def _device(self) -> str:
+        try:
+            host = socket.gethostname()
+        except OSError:
+            host = ""
+        return " ".join(x for x in (platform.system(), host) if x)
+
+    def _guard(self, fn, what: str):
+        try:
+            return fn()
+        except AuthExpired as ex:
+            self._disconnect_drive(keep_client=True)
+            self.toast(str(ex))
+        except Exception as ex:
+            traceback.print_exc()
+            self.toast(f"{what}: {ex}")
+
+    def _disconnect_drive(self, keep_client=True):
+        g = self.settings.get("google") or {}
+        g.pop("refresh_token", None)
+        g.pop("email", None)
+        if not keep_client:
+            g = {}
+        self.settings["google"] = g
+        self._save_settings()
+        self.drive = None
+
+    def schedule_sync(self, delay: float = 4.0):
+        """Abgleich nach kurzer Pause (mehrere Änderungen hintereinander -> ein Abgleich)."""
+        if not self.drive or not self.project or not self.settings.get("auto_sync", True):
+            return
+        if self.sync_timer:
+            self.sync_timer.cancel()
+        self.sync_timer = threading.Timer(delay, lambda: self.sync_now(auto=True))
+        self.sync_timer.daemon = True
+        self.sync_timer.start()
+
+    def sync_now(self, auto=False, prefer: str = ""):
+        if not self.drive or not self.project:
+            return
+        if self.busy or self.sync_running:
+            if auto:
+                self.schedule_sync(10)
+            return
+        self.sync_running = True
+        p = self.project
+        self.sync_status = "Abgleich mit Google Drive …"
+        self._refresh_quiet()
+
+        def job():
+            try:
+                r = Syncer(self.drive, self.store, self._device()).sync(p, prefer=prefer)
+                self.sync_status = f"Google Drive: {r.action} ({_fmt_ts(last_synced(r.project))})"
+                if r.action == "heruntergeladen" and self.project and self.project.dir == p.dir:
+                    self.open_project(r.project, go=False)
+                    self.toast(f"Neuerer Stand von „{p.settings.name}“ aus Google Drive übernommen.")
+                elif not auto and r.action != "aktuell":
+                    self.toast(f"Google Drive: {r.action}.")
+                elif not auto:
+                    self.toast("Google Drive: alles aktuell.")
+            except Conflict as c:
+                self.sync_status = "Google Drive: Konflikt – bitte entscheiden"
+                self._conflict_dialog(c)
+            except AuthExpired as ex:
+                self._disconnect_drive(keep_client=True)
+                self.sync_status = "Google Drive: nicht verbunden"
+                self.toast(str(ex))
+            except Exception as ex:
+                traceback.print_exc()
+                self.sync_status = f"Google Drive: Fehler ({ex})"
+                if not auto:
+                    self.toast(f"Abgleich fehlgeschlagen: {ex}")
+            finally:
+                self.sync_running = False
+                self._refresh_quiet()
+
+        self.page.run_thread(job)
+
+    def _refresh_quiet(self):
+        try:
+            self.refresh()
+        except Exception:
+            pass
+
+    def _conflict_dialog(self, c: Conflict):
+        r = c.remote
+        when = _fmt_ts(r.props.get("updated", "")) if r.props.get("updated") else r.modified
+        dev = r.props.get("device", "")
+
+        def choose(prefer):
+            self.page.pop_dialog()
+            self.sync_now(prefer=prefer)
+
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Welcher Stand soll gelten?"),
+            content=ft.Text(f"„{c.project.settings.name}“ wurde auf diesem Gerät und in Google Drive geändert"
+                            f"{f' (zuletzt von {dev}, {when})' if dev else f' ({when})'}.\n\n"
+                            "Der andere Stand wird dabei überschrieben."),
+            actions=[ft.TextButton("Dieses Gerät behalten", on_click=lambda e: choose("local")),
+                     ft.TextButton("Google-Drive-Stand übernehmen", on_click=lambda e: choose("remote")),
+                     ft.TextButton("Später", on_click=lambda e: self.page.pop_dialog())]))
+
+    def _connect_dialog(self, client_id: str, client_secret: str):
+        stop = threading.Event()
+        drive = Drive(client_id, client_secret)
+        code = ft.Text("…", size=28, weight=ft.FontWeight.BOLD, selectable=True)
+        url_btn = ft.FilledButton("google.com/device öffnen", icon=ft.Icons.OPEN_IN_NEW, disabled=True)
+        copy_btn = ft.TextButton("Code kopieren", icon=ft.Icons.CONTENT_COPY, disabled=True)
+        status = hint("Code wird angefordert …")
+
+        def cancel(e):
+            stop.set()
+            self.page.pop_dialog()
+
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True, title=ft.Text("Mit Google Drive verbinden"),
+            content=ft.Column([hint("1. Seite öffnen (auch auf einem anderen Gerät möglich)\n"
+                                    "2. Diesen Code eingeben und den Zugriff erlauben"),
+                               code, ft.Row([url_btn, copy_btn], wrap=True), status], tight=True, width=420),
+            actions=[ft.TextButton("Abbrechen", on_click=cancel)]))
+
+        def job():
+            try:
+                flow = drive.start_device_flow()
+                url = flow.get("verification_url") or flow.get("verification_uri") or "https://www.google.com/device"
+                code.value = flow["user_code"]
+                url_btn.disabled = copy_btn.disabled = False
+                url_btn.on_click = lambda e: self.open_url(url)
+                copy_btn.on_click = lambda e: self.copy(flow["user_code"], "Code")
+                status.value = "Warte auf Freigabe in Google …"
+                self.page.update()
+                email = drive.poll_device_flow(flow, should_stop=stop.is_set)
+                self.settings["google"] = {"client_id": client_id, "client_secret": client_secret,
+                                           "refresh_token": drive.refresh_token, "email": email}
+                self._save_settings()
+                self.drive = drive
+                self.page.pop_dialog()
+                self.toast(f"Mit Google Drive verbunden{f' ({email})' if email else ''}.")
+                self.schedule_sync(0.5)
+                self._refresh_quiet()
+            except Exception as ex:
+                if not stop.is_set():
+                    status.value = f"Fehler: {ex}"
+                    status.color = ft.Colors.ERROR
+                    self.page.update()
+
+        self.page.run_thread(job)
+
+    def _drive_section(self):
+        g = self.settings.get("google") or {}
+        if not self.drive:
+            cid = ft.TextField(label="Client-ID", value=g.get("client_id", ""), dense=True)
+            sec = ft.TextField(label="Client-Secret", value=g.get("client_secret", ""), password=True,
+                               can_reveal_password=True, dense=True)
+
+            def connect(e):
+                if not (cid.value or "").strip() or not (sec.value or "").strip():
+                    self.toast("Client-ID und Client-Secret eintragen (siehe Anleitung in der README).")
+                    return
+                self._connect_dialog(cid.value.strip(), sec.value.strip())
+
+            return section(
+                "Google Drive", cid, sec,
+                ft.FilledButton("Mit Google Drive verbinden", icon=ft.Icons.LOGIN, on_click=connect),
+                hint("Gleicht Projekte zwischen PC und Handy ab. Die Daten liegen in einem versteckten Ordner "
+                     "deines Google Drive, den nur diese App sieht. Client-ID und -Secret stammen aus deinem "
+                     "eigenen Google-Cloud-Projekt (Anleitung in der README)."),
+                subtitle="Nicht verbunden")
+
+        imports = ft.Column(spacing=0)
+
+        def load_remote(e):
+            def job():
+                remotes = Syncer(self.drive, self.store, self._device()).remotes()
+                local = {p.settings.uid for p in self.store.list()}
+                rows = []
+                for uid, r in remotes.items():
+                    if uid in local:
+                        continue
+                    name = r.props.get("name") or uid
+                    sub = f"{_fmt_ts(r.props.get('updated', ''))} · {r.props.get('device', '')} · {r.size // 1024} KB"
+
+                    def do_import(e, r=r):
+                        def ij():
+                            p = Syncer(self.drive, self.store, self._device()).import_remote(r)
+                            self.toast(f"„{p.settings.name}“ aus Google Drive geholt.")
+                            self.open_project(p, go=False)
+                            self._refresh_quiet()
+                        self.page.run_thread(lambda: self._guard(ij, "Holen aus Google Drive"))
+                    rows.append(ft.ListTile(title=ft.Text(name), subtitle=ft.Text(sub), dense=True,
+                                            leading=ft.Icon(ft.Icons.CLOUD_DOWNLOAD), on_click=do_import))
+                imports.controls = rows or [hint("Keine weiteren Projekte in Google Drive.")]
+                self.page.update()
+            self.page.run_thread(lambda: self._guard(job, "Google Drive"))
+
+        def set_auto(e):
+            self.settings["auto_sync"] = e.control.value
+            self._save_settings()
+
+        cur = ""
+        if self.project:
+            ls = last_synced(self.project)
+            cur = f"„{self.project.settings.name}“: " + (f"zuletzt abgeglichen {_fmt_ts(ls)}" if ls else "noch nicht abgeglichen")
+        return section(
+            "Google Drive",
+            ft.Text(f"Verbunden{' als ' + g['email'] if g.get('email') else ''}"),
+            *([hint(self.sync_status)] if self.sync_status else []),
+            *([hint(cur)] if cur else []),
+            ft.Switch(label="Automatisch abgleichen", value=self.settings.get("auto_sync", True), on_change=set_auto),
+            ft.Row([ft.Button("Jetzt abgleichen", icon=ft.Icons.SYNC, disabled=not self.project or self.sync_running,
+                              on_click=lambda e: self.sync_now()),
+                    ft.Button("Projekte aus Google Drive holen", icon=ft.Icons.CLOUD_DOWNLOAD, on_click=load_remote)],
+                   wrap=True),
+            imports,
+            ft.TextButton("Verbindung trennen", icon=ft.Icons.LINK_OFF,
+                          on_click=lambda e: (self._disconnect_drive(), self.refresh())),
+            subtitle="Abgleich beim Öffnen eines Projekts und nach jeder Änderung")
