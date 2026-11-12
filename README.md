@@ -54,10 +54,10 @@ flet build apk
 Die Ergebnisse liegen in `build/windows` bzw. `build/apk`. Die APK lässt sich direkt aufs Handy kopieren und installieren
 („Installation aus unbekannten Quellen“ erlauben). Für eine kleinere APK: `flet build apk --split-per-abi`.
 
-## Android-App über GitHub (ohne eigenes Android SDK)
+## Android- und Windows-App über GitHub (ohne eigenes Android SDK)
 
-GitHub baut die APK automatisch, sobald ein Versions-Tag wie `v1.0.0` gepusht wird, und hängt sie an ein
-Release. Für öffentliche Repos ist das kostenlos.
+GitHub baut die APK und die Windows-App automatisch, sobald ein Versions-Tag wie `v1.0.0` gepusht wird, und
+hängt beide an ein Release (Windows als ZIP: entpacken, dann die `.exe` im Ordner starten). Für öffentliche Repos ist das kostenlos.
 
 **Einmalig: Signierschlüssel anlegen.** Jede Version muss mit demselben Schlüssel signiert sein, sonst lässt
 sie sich nicht über die alte installieren.
@@ -81,7 +81,7 @@ New repository secret** zwei Secrets anlegen:
 `upload-keystore.jks` und das Passwort sicher aufbewahren (Backup). Die `…-base64.txt` danach löschen.
 
 **Neue Version veröffentlichen:** In GitHub Desktop **History** → Rechtsklick auf den neuesten Commit →
-**Create Tag…** → z. B. `v1.0.0` → **Push origin**. Unter **Actions** läuft dann „Android-APK“ (dauert
+**Create Tag…** → z. B. `v1.0.0` → **Push origin**. Unter **Actions** läuft dann „App bauen“ (dauert
 einige Minuten), danach liegt die APK unter **Releases**.
 
 **Auf dem Handy:** Release-Seite öffnen, `WikiTree-GEDCOM-Vergleich-….apk` herunterladen, antippen und

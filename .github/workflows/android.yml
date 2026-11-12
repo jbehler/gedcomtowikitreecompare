@@ -1,8 +1,8 @@
-# Baut die Android-APK und hängt sie an ein GitHub-Release.
-# Auslöser: ein Versions-Tag wie v1.0.0 (oder manuell unter Actions -> "Android-APK" -> Run workflow).
-# Benötigte Repository-Secrets (siehe README, Abschnitt "Android-App"):
+# Baut die Android-APK und die Windows-App und hängt beide an ein GitHub-Release.
+# Auslöser: ein Versions-Tag wie v1.2.0 (oder manuell unter Actions -> "App bauen" -> Run workflow).
+# Benötigte Repository-Secrets für Android (siehe README, Abschnitt "Android-App"):
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD
-name: Android-APK
+name: App bauen
 
 on:
   push:
@@ -13,20 +13,26 @@ permissions:
   contents: write   # zum Anlegen des Releases
 
 jobs:
-  apk:
+  version:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Version bestimmen
-        id: ver
+      - id: ver
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             echo "version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
           fi
+
+  apk:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
 
       - name: Signierschlüssel bereitstellen
         env:
@@ -52,34 +58,73 @@ jobs:
           runner-python-version: "3.13"
           bundled-python-version: "3.13"
           build-number: ${{ github.run_number }}
-          build-version: ${{ steps.ver.outputs.version }}
+          build-version: ${{ needs.version.outputs.version }}
 
       - name: APK umbenennen
-        id: apk
         run: |
           src=$(find "${{ steps.build.outputs.output-path }}" -name '*.apk' | head -1)
           test -n "$src" || { echo "::error::Keine APK gefunden"; exit 1; }
-          dst="$RUNNER_TEMP/WikiTree-GEDCOM-Vergleich-${{ steps.ver.outputs.version }}.apk"
-          cp "$src" "$dst"
-          echo "path=$dst" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+          cp "$src" "dist/WikiTree-GEDCOM-Vergleich-${{ needs.version.outputs.version }}.apk"
 
-      - name: Als Artefakt ablegen (manueller Lauf)
-        if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
-          path: ${{ steps.apk.outputs.path }}
-          archive: false
+          name: apk
+          path: dist/*.apk
           if-no-files-found: error
-
-      - name: Release anlegen
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" \
-            --title "WikiTree GEDCOM Vergleich ${{ steps.ver.outputs.version }}" \
-            --notes "Android-App: APK auf dem Handy herunterladen und installieren (Installation aus unbekannten Quellen erlauben)."
 
       - name: Schlüssel entfernen
         if: always()
         run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Windows-App bauen
+        id: build
+        uses: flet-dev/flet-build-action@v1
+        with:
+          target: windows
+          runner-python-version: "3.13"
+          bundled-python-version: "3.13"
+          build-number: ${{ github.run_number }}
+          build-version: ${{ needs.version.outputs.version }}
+
+      # Wie in der Flet-Doku (Windows -> zip archive): Inhalt des Build-Ordners zippen
+      - name: ZIP erstellen
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "${{ steps.build.outputs.output-path }}\*" `
+            -DestinationPath "dist\WikiTree-GEDCOM-Vergleich-${{ needs.version.outputs.version }}-Windows.zip" -Force
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [version, apk, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "WikiTree GEDCOM Vergleich ${{ needs.version.outputs.version }}" \
+            --notes "**Android:** die .apk auf dem Handy herunterladen und installieren (Installation aus unbekannten Quellen erlauben).
+
+          **Windows:** die -Windows.zip herunterladen, *entpacken* und im entpackten Ordner die .exe starten. Windows kann beim ersten Start warnen (SmartScreen), weil die App nicht signiert ist: *Weitere Informationen* -> *Trotzdem ausführen*."
