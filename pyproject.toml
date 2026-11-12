@@ -10,8 +10,11 @@ dependencies = [
   "requests>=2.31",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest", "rapidfuzz", "flet-cli==1.1.2", "flet-desktop==1.1.2"]
+# Nur fürs Entwickeln/Bauen, wird nicht in die App gepackt. `uv run` (auch die GitHub-Build-Action)
+# installiert die Gruppe "dev" automatisch – ohne flet-cli würde `flet` es beim ersten Aufruf
+# nachinstallieren und dabei die JSON-Ausgabe von `flet --version --json` verderben.
+[dependency-groups]
+dev = ["flet-cli==1.1.2", "pytest", "rapidfuzz"]
 
 [tool.flet]
 org = "io.github.jbehler"
